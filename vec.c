@@ -1320,7 +1320,6 @@ static void Exec_SFPSHFT2(Env* env, uint32_t insn) {
     break;
   case SFPSHFT2_MOD1_SUBVEC_SHFLSHR1:
     SubvecShflShr1(env, &result, &env->vreg[vc]);
-    WriteVReg(env, insn, vd, &result);
     break;
   case SFPSHFT2_MOD1_SHFT_IMM:
     for (uint32_t i = 0; i < 32; ++i) {
