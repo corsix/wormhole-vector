@@ -776,7 +776,7 @@ static void Exec_SFPNOT(Env* env, uint32_t insn) {
 
 #define SFPLZ_MOD1_CC_NE0     2 // Refine flags based on input != 0
 #define SFPLZ_MOD1_NOSGN_MASK 4 // Mask off sign bit of input
-#define SFPLZ_MOD1_CC_COMP    8 // Refine flags based on input == 0
+#define SFPLZ_MOD1_CC_COMP    8 // Refine flags based on complement of condition
 
 static void Exec_SFPLZ(Env* env, uint32_t insn) {
   uint32_t mod1 = insn_bits(0, 4);
@@ -800,7 +800,7 @@ static void Exec_SFPLZ(Env* env, uint32_t insn) {
   }
 
   WriteVReg(env, insn, vd, &result);
-  if (insn & (SFPLZ_MOD1_CC_NE0 | SFPLZ_MOD1_CC_COMP)) {
+  if (insn & SFPLZ_MOD1_CC_NE0) {
     // Refine flags based on VC != 0
     if (insn & SFPLZ_MOD1_CC_COMP) {
       // ... or inverse thereof.
