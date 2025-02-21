@@ -1275,8 +1275,8 @@ static void Exec_SFPSWAP(Env* env, uint32_t insn) {
 #define SFPSHFT2_MOD1_SUBVEC_SHFLROR1_AND_COPY4 2
 #define SFPSHFT2_MOD1_SUBVEC_SHFLROR1           3
 #define SFPSHFT2_MOD1_SUBVEC_SHFLSHR1           4
-#define SFPSHFT2_MOD1_SHFT_IMM                  5
-#define SFPSHFT2_MOD1_SHFT_LREG                 6
+#define SFPSHFT2_MOD1_SHFT_LREG                 5
+#define SFPSHFT2_MOD1_SHFT_IMM                  6
 
 static void SubvecShflRor1(Env* env, VReg* result, const VReg* input) {
   for (uint32_t i = 0; i < 32; ++i) {
@@ -1321,12 +1321,12 @@ static void Exec_SFPSHFT2(Env* env, uint32_t insn) {
   case SFPSHFT2_MOD1_SUBVEC_SHFLSHR1:
     SubvecShflShr1(env, &result, &env->vreg[vc]);
     break;
-  case SFPSHFT2_MOD1_SHFT_IMM:
+  case SFPSHFT2_MOD1_SHFT_LREG:
     for (uint32_t i = 0; i < 32; ++i) {
       result.u[i] = Shift(env->vreg[vb].u[i], env->vreg[vc].u[i]);
     }
     break;
-  case SFPSHFT2_MOD1_SHFT_LREG:
+  case SFPSHFT2_MOD1_SHFT_IMM:
     for (uint32_t i = 0; i < 32; ++i) {
       result.u[i] = Shift(env->vreg[vb].u[i], imm12); // vb overlaps with imm12!
     }
