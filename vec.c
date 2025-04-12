@@ -100,8 +100,17 @@ static void WriteVRegIndirect(Env* env, uint32_t insn, VReg* contents) {
   }
 }
 
-static void RefineFlags(Env* result, uint32_t per_lane) {
-  result->flags.per_lane &= result->flags.active ? per_lane : 0;
+static void RefineFlags(Env* env, uint32_t new_flags) {
+  uint32_t per_lane = env->flags.active ? env->flags.per_lane : ALL_LANES_ENABLED;
+  env->flags.per_lane = per_lane & new_flags;
+}
+
+static void WriteFlags(Env* env, uint32_t vd, uint32_t new_flags) {
+  if (vd >= 8) {
+    // Cannot write to flags if destination register is invalid.
+    return;
+  }
+  RefineFlags(env, new_flags);
 }
 
 static float u2f(uint32_t u) {
@@ -480,7 +489,7 @@ static void Exec_SFPDIVP2(Env* env, uint32_t insn) {
 #define SFPEXEXP_MOD1_DEBIAS   0 // Subtract fp32 exponent bias (result in range -127 through +128)
 #define SFPEXEXP_MOD1_NODEBIAS 1 // Do not subtract fp32 exponent bias (result in range 0 through 255)
 #define SFPEXEXP_MOD1_SET_CC_SGN_EXP       2 // Refine flags based on result < 0
-#define SFPEXEXP_MOD1_SET_CC_COMP_EXP      8
+#define SFPEXEXP_MOD1_SET_CC_COMP_EXP      8 // Invert sense of flag refinement
 #define SFPEXEXP_MOD1_SET_CC_SGN_COMP_EXP 10 // Refine flags based on result >= 0
 
 static void Exec_SFPEXEXP(Env* env, uint32_t insn) {
@@ -489,7 +498,7 @@ static void Exec_SFPEXEXP(Env* env, uint32_t insn) {
   uint32_t vc = insn_bits(8, 4);
 
   VReg result;
-  uint32_t flags = mod1 & SFPEXEXP_MOD1_SET_CC_SGN_EXP ? 0 : ALL_LANES_ENABLED;
+  uint32_t flags = 0;
   uint32_t bias = mod1 & SFPEXEXP_MOD1_NODEBIAS ? 0 : 127;
   for (uint32_t i = 0; i < 32; ++i) {
     // VD = VC.Exponent - bias
@@ -499,14 +508,16 @@ static void Exec_SFPEXEXP(Env* env, uint32_t insn) {
   }
 
   WriteVReg(env, insn, vd, &result);
-  if (mod1 & (SFPEXEXP_MOD1_SET_CC_SGN_EXP | SFPEXEXP_MOD1_SET_CC_COMP_EXP)) {
+  if (mod1 & SFPEXEXP_MOD1_SET_CC_SGN_EXP) {
     // Refine flags based on VD < 0
-    if (mod1 & SFPEXEXP_MOD1_SET_CC_COMP_EXP) {
-      // ... or inverse thereof.
-      flags = ~flags;
-    }
-    RefineFlags(env, flags);
+  } else {
+    flags = env->flags.per_lane;
   }
+  if (mod1 & SFPEXEXP_MOD1_SET_CC_COMP_EXP) {
+    // ... or inverse thereof.
+    flags = ~flags;
+  }
+  WriteFlags(env, vd, flags);
 }
 
 // --- SFPEXMAN ---
@@ -548,6 +559,7 @@ static void Exec_SFPIADD(Env* env, uint32_t insn) {
   int32_t imm12 = insn_bits_signed(12, 12);
 
   VReg result;
+  uint32_t flags = 0;
   if (mod1 & SFPIADD_MOD1_ARG_IMM) {
     // VD = VC ± Imm11
     for (uint32_t i = 0; i < 32; ++i) {
@@ -565,10 +577,8 @@ static void Exec_SFPIADD(Env* env, uint32_t insn) {
     }
   }
   WriteVReg(env, insn, vd, &result);
-
-  uint32_t flags = 0;
   if (insn & SFPIADD_MOD1_CC_NONE) {
-    flags = ALL_LANES_ENABLED;
+    flags = env->flags.per_lane;
   } else {
     // Refine flags based VD < 0
     for (uint32_t i = 0; i < 32; ++i) {
@@ -579,7 +589,7 @@ static void Exec_SFPIADD(Env* env, uint32_t insn) {
     // ... or inverse thereof.
     flags = ~flags;
   }
-  RefineFlags(env, flags);
+  WriteFlags(env, vd, flags);
 }
 
 // --- SFPSHFT ---
@@ -634,7 +644,9 @@ static void Exec_SFPSETCC(Env* env, uint32_t insn) {
   uint32_t vc = insn_bits(8, 4);
   int32_t imm12 = insn_bits(12, 12);
 
-  if (mod1 & SFPSETCC_MOD1_CLEAR) {
+  if (!env->flags.active) {
+    RefineFlags(env, 0);
+  } else if (mod1 & SFPSETCC_MOD1_CLEAR) {
     RefineFlags(env, 0);
   } else if (mod1 & SFPSETCC_MOD1_IMM_BIT0) {
     RefineFlags(env, (imm12 & 1) ? ALL_LANES_ENABLED : 0);
@@ -776,7 +788,7 @@ static void Exec_SFPNOT(Env* env, uint32_t insn) {
 
 #define SFPLZ_MOD1_CC_NE0     2 // Refine flags based on input != 0
 #define SFPLZ_MOD1_NOSGN_MASK 4 // Mask off sign bit of input
-#define SFPLZ_MOD1_CC_COMP    8 // Refine flags based on input == 0
+#define SFPLZ_MOD1_CC_COMP    8 // Invert sense of flag refinement
 
 static void Exec_SFPLZ(Env* env, uint32_t insn) {
   uint32_t mod1 = insn_bits(0, 4);
@@ -784,7 +796,7 @@ static void Exec_SFPLZ(Env* env, uint32_t insn) {
   uint32_t vc = insn_bits(8, 4);
 
   VReg result;
-  uint32_t flags = insn & SFPLZ_MOD1_CC_NE0 ? 0 : ALL_LANES_ENABLED;
+  uint32_t flags = 0;
   for (uint32_t i = 0; i < 32; ++i) {
     // VD = CountLeadingZeros(VC)
     uint32_t val = env->vreg[vc].u[i];
@@ -800,14 +812,16 @@ static void Exec_SFPLZ(Env* env, uint32_t insn) {
   }
 
   WriteVReg(env, insn, vd, &result);
-  if (insn & (SFPLZ_MOD1_CC_NE0 | SFPLZ_MOD1_CC_COMP)) {
+  if (insn & SFPLZ_MOD1_CC_NE0) {
     // Refine flags based on VC != 0
-    if (insn & SFPLZ_MOD1_CC_COMP) {
-      // ... or inverse thereof.
-      flags = ~flags;
-    }
-    RefineFlags(env, flags);
+  } else {
+    flags = env->flags.per_lane;
   }
+  if (insn & SFPLZ_MOD1_CC_COMP) {
+    // ... or inverse thereof.
+    flags = ~flags;
+  }
+  WriteFlags(env, vd, flags);
 }
 
 // --- SFPSETEXP ---
